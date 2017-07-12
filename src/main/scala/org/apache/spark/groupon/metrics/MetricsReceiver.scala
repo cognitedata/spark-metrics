@@ -34,13 +34,11 @@ package org.apache.spark.groupon.metrics
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import collection.JavaConverters._
 
 import com.codahale.metrics.{Clock, Counter, Gauge, Histogram, Meter, Metric, MetricRegistry, Reservoir, Timer}
 import org.apache.spark.{SparkContext, SparkException}
-import org.apache.spark.rpc.RpcEndpoint
-
-import scala.collection.concurrent
-import scala.collection.JavaConverters.mapAsScalaConcurrentMapConverter
+import org.apache.spark.rpc.{RpcEndpoint, RpcEnv}
 
 /**
  * MetricsReceiver is an [[RpcEndpoint]] on the driver node that collects data points for metrics from all the executors
@@ -79,12 +77,24 @@ import scala.collection.JavaConverters.mapAsScalaConcurrentMapConverter
  */
 private[metrics] class MetricsReceiver(val sparkContext: SparkContext,
                                        val metricNamespace: String) extends RpcEndpoint {
-  override val rpcEnv = sparkContext.env.rpcEnv
+  override val rpcEnv: RpcEnv = sparkContext.env.rpcEnv
+
+  class LazyWrapper[T](wrapped: => T) {
+    lazy val value = wrapped
+  }
+
+  private def wrap[T](value: => T): LazyWrapper[T] = {
+    new LazyWrapper[T](value)
+  }
+
+  private def unwrap[T](lazyWrapper: LazyWrapper[T]): T = {
+    lazyWrapper.value
+  }
 
   // Tracks the last observed value for each Gauge
-  val lastGaugeValues: concurrent.Map[String, AnyVal] = new ConcurrentHashMap[String, AnyVal]().asScala
+  val lastGaugeValues: ConcurrentHashMap[String, AnyVal] = new ConcurrentHashMap[String, AnyVal]()
   // Keeps track of all the Metric instances that are being published
-  val metrics: concurrent.Map[String, Metric] = new ConcurrentHashMap[String, Metric]().asScala
+  val metrics = new ConcurrentHashMap[String, LazyWrapper[Metric]]().asScala
 
   /**
    * Handle the data points pushed from the executors.
@@ -93,66 +103,46 @@ private[metrics] class MetricsReceiver(val sparkContext: SparkContext,
    * time, a [[Metric]] instance is created using the data from the [[MetricMessage]].
    */
   override def receive: PartialFunction[Any, Unit] = {
-    case CounterMessage(metricName, value) => {
+    case CounterMessage(metricName, value) =>
       getOrCreateCounter(metricName).inc(value)
-    }
-    case HistogramMessage(metricName, value, reservoirClass) => {
+    case HistogramMessage(metricName, value, reservoirClass) =>
       getOrCreateHistogram(metricName, reservoirClass).update(value)
-    }
-    case MeterMessage(metricName, value) => {
+    case MeterMessage(metricName, value) =>
       getOrCreateMeter(metricName).mark(value)
-    }
-    case TimerMessage(metricName, value, reservoirClass, clockClass) => {
+    case TimerMessage(metricName, value, reservoirClass, clockClass) =>
       getOrCreateTimer(metricName, reservoirClass, clockClass).update(value, MetricsReceiver.DefaultTimeUnit)
-    }
-    case GaugeMessage(metricName, value) => {
+    case GaugeMessage(metricName, value) =>
       lastGaugeValues.put(metricName, value)
       getOrCreateGauge(metricName)
-    }
     case message: Any => throw new SparkException(s"$self does not implement 'receive' for message: $message")
   }
 
-  def getOrCreateCounter(metricName: String): Counter = {
-    metrics.getOrElseUpdate(metricName, {
-      val counter = new Counter()
-      registerMetricSource(metricName, counter)
-      counter
-    }).asInstanceOf[Counter]
+  def getOrElseUpdate(metricName: String, metric: => Metric): Metric = {
+    val wrapped = wrap(metric)
+    metrics.putIfAbsent(metricName, wrapped) match {
+      case Some(wrappedMetric) => wrappedMetric.value
+      case None => {
+        registerMetricSource(metricName, wrapped.value)
+        wrapped.value
+      }
+    }
   }
 
-  def getOrCreateHistogram(metricName: String, reservoirClass: Class[_ <: Reservoir]): Histogram = {
-    metrics.getOrElseUpdate(metricName, {
-      val histogram = new Histogram(reservoirClass.newInstance())
-      registerMetricSource(metricName, histogram)
-      histogram
-    }).asInstanceOf[Histogram]
-  }
+  def getOrCreateCounter(metricName: String): Counter =
+    getOrElseUpdate(metricName, new Counter).asInstanceOf[Counter]
 
-  def getOrCreateMeter(metricName: String): Meter = {
-    metrics.getOrElseUpdate(metricName, {
-      val meter = new Meter()
-      registerMetricSource(metricName, meter)
-      meter
-    }).asInstanceOf[Meter]
-  }
+  def getOrCreateHistogram(metricName: String, reservoirClass: Class[_ <: Reservoir]): Histogram =
+    getOrElseUpdate(metricName, new Histogram(reservoirClass.newInstance())).asInstanceOf[Histogram]
 
-  def getOrCreateTimer(metricName: String, reservoirClass: Class[_ <: Reservoir], clockClass: Class[_ <: Clock]): Timer = {
-    metrics.getOrElseUpdate(metricName, {
-      val timer = new Timer(reservoirClass.newInstance(), clockClass.newInstance())
-      registerMetricSource(metricName, timer)
-      timer
-    }).asInstanceOf[Timer]
-  }
+  def getOrCreateMeter(metricName: String): Meter =
+    getOrElseUpdate(metricName, new Meter).asInstanceOf[Meter]
+
+  def getOrCreateTimer(metricName: String, reservoirClass: Class[_ <: Reservoir], clockClass: Class[_ <: Clock]): Timer =
+    getOrElseUpdate(metricName, new Timer(reservoirClass.newInstance(), clockClass.newInstance())).asInstanceOf[Timer]
 
   def getOrCreateGauge(metricName: String): Gauge[AnyVal] = {
-    metrics.getOrElseUpdate(metricName, {
-      val gauge = new Gauge[AnyVal] {
-        override def getValue: AnyVal = {
-          lastGaugeValues.get(metricName).get
-        }
-      }
-      registerMetricSource(metricName, gauge)
-      gauge
+    getOrElseUpdate(metricName, new Gauge[AnyVal] {
+      override def getValue: AnyVal = lastGaugeValues.get(metricName)
     }).asInstanceOf[Gauge[AnyVal]]
   }
 
