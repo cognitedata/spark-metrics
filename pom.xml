@@ -5,7 +5,7 @@
     <groupId>com.groupon.dse</groupId>
     <artifactId>spark-metrics</artifactId>
     <packaging>jar</packaging>
-    <version>2.0.1-SNAPSHOT</version>
+    <version>2.1.0-cognite</version>
 
     <name>${project.groupId}:${project.artifactId}</name>
     <description>A library to expose more of Apache Spark's metrics system</description>
@@ -41,14 +41,16 @@
     </scm>
 
     <distributionManagement>
-        <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-        </snapshotRepository>
         <repository>
-            <id>ossrh</id>
-            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+            <id>repository.dev.cognite.ai</id>
+            <name>Cognite maven releases</name>
+            <url>https://repository.dev.cognite.ai/repository/cognite/</url>
         </repository>
+        <snapshotRepository>
+            <id>repository.dev.cognite.ai</id>
+            <name>Cognite maven snapshots</name>
+            <url>https://repository.dev.cognite.ai/repository/cognite-snapshot</url>
+        </snapshotRepository>
     </distributionManagement>
 
     <parent>
