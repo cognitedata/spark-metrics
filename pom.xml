@@ -41,16 +41,16 @@
     </scm>
 
     <distributionManagement>
-        <repository>
-            <id>repository.dev.cognite.ai</id>
-            <name>Cognite maven releases</name>
-            <url>https://repository.dev.cognite.ai/repository/cognite/</url>
-        </repository>
-        <snapshotRepository>
-            <id>repository.dev.cognite.ai</id>
-            <name>Cognite maven snapshots</name>
-            <url>https://repository.dev.cognite.ai/repository/cognite-snapshot</url>
-        </snapshotRepository>
+      <repository>
+        <id>cognite.jfrog.io</id>
+        <name>Cognite maven releases</name>
+        <url>https://cognite.jfrog.io/cognite/libs-release-local</url>
+      </repository>
+      <snapshotRepository>
+        <id>cognite.jfrog.io</id>
+        <name>Cognite maven snapshots</name>
+        <url>https://cognite.jfrog.io/cognite/libs-snapshot-local</url>
+      </snapshotRepository>
     </distributionManagement>
 
     <parent>
