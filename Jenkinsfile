@@ -25,6 +25,7 @@ podTemplate(label: label,
         container('maven') {
             stage('Install Maven credentials') {
                 sh('cp /maven-credentials/settings.xml /root/.m2')
+                sh('mkdir -p /home/jenkins/.m2 && cp /maven-credentials/settings.xml /home/jenkins/.m2/')
             }
             stage('Test') {
                 sh('mvn test || true')
@@ -32,11 +33,11 @@ podTemplate(label: label,
                 summarizeTestResults()
                 sh('mvn verify -DskipTests')
             }
-            if (env.BRANCH_NAME == 'master') {
+            //if (env.BRANCH_NAME == 'master') {
                 stage('Deploy') {
                     sh('mvn deploy')
                 }
-            }
+            //}
         }
     }
 }
